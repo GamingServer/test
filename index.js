@@ -1,63 +1,80 @@
-const process = require("process");
-
-// CPU Usage
-const startUsage = process.cpuUsage();
-
-
-// RAM Usage
-// setInterval(() => {
-//   const memory = process.memoryUsage();
-//   console.clear();
-//   const usage = process.cpuUsage(startUsage);
-//   const user = usage.user / 1000000; // Convert microseconds to seconds
-//   const system = usage.system / 1000000;
-//   console.log(
-//     `CPU Usage: User ${user.toFixed(2)}s, System ${system.toFixed(2)}s`
-//   );
-//   console.log("RAM Usage:");
-//   console.log(`  RSS: ${(memory.rss / 1024 / 1024).toFixed(2)} MB`);
-//   console.log(
-//     `  Heap Total: ${(memory.heapTotal / 1024 / 1024).toFixed(2)} MB`
-//   );
-//   console.log(`  Heap Used: ${(memory.heapUsed / 1024 / 1024).toFixed(2)} MB`);
-//   console.log(`  External: ${(memory.external / 1024 / 1024).toFixed(2)} MB`);
-// }, 1000);
-
+const express = require('express');
+const cluster = require('cluster');
 const os = require('os');
+const process = require('process');
+const Limit = require('express-rate-limit');
 
-const Limit = require('express-rate-limit')
-
-const limit =  Limit({
-    windowMs: 1000*60, 
-    max: 2500, 
-    message:"to many requests"
-})
-
-// System information
-console.log('Platform:', os.platform()); // e.g., 'linux', 'win32', 'darwin'
-console.log('Architecture:', os.arch()); // e.g., 'x64', 'arm'
-console.log('OS Type:', os.type()); // e.g., 'Linux', 'Windows_NT'
-console.log('OS Release:', os.release()); // OS version
-console.log('Hostname:', os.hostname()); // System hostname
-console.log('Uptime:', os.uptime(), 'seconds'); // System uptime
-console.log('Total Memory:', os.totalmem(), 'bytes'); // Total system memory
-console.log('Free Memory:', os.freemem(), 'bytes'); // Free memory
-console.log('CPUs:', os.cpus()); // CPU info (array of core details)
-console.log('Network Interfaces:', os.networkInterfaces()); // Network interfaces
-console.log('Home Directory:', os.homedir()); // User home directory
-console.log('Temp Directory:', os.tmpdir()); // Temporary directory
-console.log('Endianness:', os.endianness()); // Byte order: 'BE' or 'LE'
-console.log('Load Average:', os.loadavg()); // System load averages (1, 5, 15 minutes)
-
-const express = require("express");
-const app = express();
-const port = 8081;
-app.use(limit)
-
-app.get("/", (req, res) => {
-  res.send("Hello World!");
+// Rate limiter configuration
+const limit = Limit({
+  windowMs: 1000 * 60,
+  max: 2500,
+  message: "too many requests"
 });
 
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`);
-});
+const numCPUs = os.cpus().length; // Number of CPU cores
+
+if (cluster.isMaster) {
+  console.log(`Master ${process.pid} is running`);
+
+  // Log system information once in master
+  console.log('Platform:', os.platform());
+  console.log('Architecture:', os.arch());
+  console.log('OS Type:', os.type());
+  console.log('OS Release:', os.release());
+  console.log('Hostname:', os.hostname());
+  console.log('Uptime:', os.uptime(), 'seconds');
+  console.log('Total Memory:', os.totalmem(), 'bytes');
+  console.log('Free Memory:', os.freemem(), 'bytes');
+  console.log('CPUs:', os.cpus());
+  console.log('Network Interfaces:', os.networkInterfaces());
+  console.log('Home Directory:', os.homedir());
+  console.log('Temp Directory:', os.tmpdir());
+  console.log('Endianness:', os.endianness());
+  console.log('Load Average:', os.loadavg());
+
+  // Fork workers for each CPU core
+  for (let i = 0; i < numCPUs; i++) {
+    cluster.fork();
+  }
+
+  // Handle worker exit
+  cluster.on('exit', (worker, code, signal) => {
+    console.log(`Worker ${worker.process.pid} died`);
+    cluster.fork(); // Replace dead worker
+  });
+} else {
+  // Worker process
+  const app = express();
+  const port = 8081;
+
+  // CPU Usage
+  const startUsage = process.cpuUsage();
+
+  // RAM and CPU Usage monitoring
+//   setInterval(() => {
+//     const memory = process.memoryUsage();
+//     console.clear();
+//     const usage = process.cpuUsage(startUsage);
+//     const user = usage.user / 1000000; // Convert microseconds to seconds
+//     const system = usage.system / 1000000;
+//     console.log(`Worker ${process.pid} - CPU Usage: User ${user.toFixed(2)}s, System ${system.toFixed(2)}s`);
+//     console.log(`Worker ${process.pid} - RAM Usage:`);
+//     console.log(`  RSS: ${(memory.rss / 1024 / 1024).toFixed(2)} MB`);
+//     console.log(`  Heap Total: ${(memory.heapTotal / 1024 / 1024).toFixed(2)} MB`);
+//     console.log(`  Heap Used: ${(memory.heapUsed / 1024 / 1024).toFixed(2)} MB`);
+//     console.log(`  External: ${(memory.external / 1024 / 1024).toFixed(2)} MB`);
+//   }, 1000);
+
+  // Apply rate limiter
+  app.use(limit);
+
+  // Sample route
+  app.get('/', (req, res) => {
+    res.send(`Hello World from worker ${process.pid}!`);
+  });
+
+  // Start server
+  app.listen(port, () => {
+    console.log(`Worker ${process.pid} listening on port ${port}`);
+  });
+}
