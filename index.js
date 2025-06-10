@@ -7,7 +7,7 @@ const Limit = require('express-rate-limit');
 // Rate limiter configuration
 const limit = Limit({
   windowMs: 1000 * 60,
-  max: 100,
+  max: 2000,
   message: "too many requests"
 });
 
